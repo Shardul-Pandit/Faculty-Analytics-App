@@ -1,0 +1,66 @@
+StudentName,Major,Year,Gender,AssignmentGrade
+Student 001,Psychology,Senior,Male,74.6
+Student 002,Biology,Senior,Female,75.2
+Student 003,Psychology,Freshman,Male,84.7
+Student 004,Business,Sophomore,Female,98.3
+Student 005,Business,Sophomore,Male,59.3
+Student 006,Computer Science,Freshman,Female,89.4
+Student 007,Psychology,Senior,Female,80.0
+Student 008,Computer Science,Junior,Male,75.4
+Student 009,Computer Science,Sophomore,Male,77.4
+Student 010,Biology,Junior,Male,63.8
+Student 011,Business,Senior,Male,74.0
+Student 012,Computer Science,Freshman,Female,94.8
+Student 013,Psychology,Junior,Male,79.1
+Student 014,Psychology,Freshman,Male,85.8
+Student 015,Computer Science,Junior,Male,75.6
+Student 016,Biology,Senior,Male,77.3
+Student 017,Computer Science,Freshman,Female,94.5
+Student 018,Biology,Freshman,Female,71.5
+Student 019,Computer Science,Senior,Male,89.6
+Student 020,Psychology,Freshman,Female,72.0
+Student 021,Biology,Sophomore,Female,82.6
+Student 022,Psychology,Junior,Female,78.3
+Student 023,Business,Sophomore,Female,71.5
+Student 024,Psychology,Sophomore,Male,86.9
+Student 025,Computer Science,Sophomore,Female,65.8
+Student 026,Computer Science,Freshman,Female,74.7
+Student 027,Business,Junior,Female,73.6
+Student 028,Computer Science,Junior,Female,90.8
+Student 029,Business,Senior,Male,81.3
+Student 030,Biology,Senior,Non-binary,80.8
+Student 031,Biology,Freshman,Male,91.6
+Student 032,Psychology,Senior,Female,68.1
+Student 033,Biology,Junior,Male,80.6
+Student 034,Computer Science,Junior,Male,79.3
+Student 035,Computer Science,Freshman,Male,82.6
+Student 036,Biology,Freshman,Female,81.7
+Student 037,Biology,Freshman,Female,70.6
+Student 038,Business,Senior,Male,63.6
+Student 039,Biology,Senior,Female,70.6
+Student 040,Business,Sophomore,Male,75.2
+Student 041,Biology,Junior,Male,81.4
+Student 042,Business,Freshman,Female,77.1
+Student 043,Business,Junior,Male,77.7
+Student 044,Computer Science,Junior,Female,84.0
+Student 045,Biology,Sophomore,Male,96.1
+Student 046,Biology,Senior,Female,74.3
+Student 047,Business,Sophomore,Male,85.2
+Student 048,Computer Science,Freshman,Male,84.7
+Student 049,Biology,Senior,Non-binary,89.0
+Student 050,Business,Junior,Non-binary,80.3
+Student 051,Biology,Senior,Male,89.1
+Student 052,Business,Freshman,Male,81.4
+Student 053,Computer Science,Junior,Female,86.9
+Student 054,Computer Science,Freshman,Female,80.3
+Student 055,Computer Science,Senior,Female,84.7
+Student 056,Psychology,Freshman,Female,75.2
+Student 057,Computer Science,Sophomore,Female,87.4
+Student 058,Biology,Sophomore,Male,90.9
+Student 059,Psychology,Sophomore,Female,73.9
+Student 060,Biology,Freshman,Non-binary,89.9
+Student 061,Computer Science,Freshman,Male,79.4
+Student 062,Psychology,Junior,Non-binary,84.6
+Student 063,Biology,Junior,Male,80.6
+Student 064,Computer Science,Sophomore,Male,73.7
+Student 065,Computer Science,Freshman,Female,68.6
