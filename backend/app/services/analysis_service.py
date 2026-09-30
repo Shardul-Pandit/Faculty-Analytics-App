@@ -47,23 +47,14 @@ from ..utils.chart_utils import (
 
 
 def _openai_available() -> bool:
-    """True when OpenAI key is configured and looks valid."""
+    """True when an OpenAI key is configured and looks valid."""
     return bool(settings.openai_api_key and settings.openai_api_key.startswith("sk-"))
 
 
-def _gemini_available() -> bool:
-    """True when Gemini is selected as provider and a key is present."""
-    return bool(
-        settings.ai_provider.lower() == "gemini"
-        and settings.gemini_api_key
-    )
-
-
 def _ai_available() -> bool:
-    """True when any configured AI provider is ready to use."""
-    return _gemini_available() or (
-        settings.ai_provider.lower() == "openai" and _openai_available()
-    )
+    """True when at least one provider in the AI_PROVIDER chain is ready to use."""
+    from ..engine.query_parser import configured_providers
+    return bool(configured_providers())
 
 
 # ---------------------------------------------------------------------------
@@ -644,10 +635,14 @@ def _dispatch(
     if df_b is not None:
         df_b = _apply_filters(df_b)
 
+    # With one file, questions that only make sense across two files (e.g. term
+    # comparisons) fall back to a one-file summary. Everything listed here has
+    # its own branch below that works with one file or explains what's missing.
     if intent_type in ("summary_one_file",) or (
         df_b is None and intent_type not in (
             "compare_majors", "best_major", "worst_major",
             "slo_distribution", "best_student", "worst_student",
+            "top_improvers", "biggest_declines", "grade_bands",
         )
     ):
         results = overall_summary_one_file(df_a)

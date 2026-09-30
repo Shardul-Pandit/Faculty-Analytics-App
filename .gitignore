@@ -10,6 +10,11 @@ venv/
 .venv/
 env/
 
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+
 # Distribution / packaging
 *.egg-info/
 dist/

@@ -3,27 +3,33 @@ engine/query_parser.py
 ----------------------
 Provider-agnostic AI layer for intent parsing and summary generation.
 
-Supported providers (selected via AI_PROVIDER in .env):
-  - "gemini"  — Google Gemini (model set by GEMINI_MODEL, default gemini-3.5-flash-lite)
-  - "openai"  — OpenAI (gpt-4o-mini)
-  - "basic"   — rule-based only (no API key required)
+Providers are tried as an ordered failover chain, set via AI_PROVIDER in .env:
+  AI_PROVIDER=gemini,openai   -> try Gemini, then OpenAI, then rule-based
+  AI_PROVIDER=gemini          -> try Gemini, then rule-based
+  AI_PROVIDER=basic           -> rule-based only (no API key required)
+
+Supported providers:
+  - "gemini"  - Google Gemini (model set by GEMINI_MODEL)
+  - "openai"  - OpenAI (model set by OPENAI_MODEL)
+
+A provider listed without an API key is skipped, never called.
 
 The LLM NEVER performs statistical calculations.
 It only:
-  1. parse_intent_with_ai()    — converts natural language → structured intent JSON
-  2. generate_summary_with_ai() — turns pre-computed result dicts → plain-English summary
+  1. parse_intent_with_ai()     - converts natural language -> structured intent JSON
+  2. generate_summary_with_ai() - turns pre-computed result dicts -> plain-English summary
 
-Every AI call is wrapped in a try/except.  On any failure (network error, quota,
-bad JSON, timeout) the function returns None and the caller silently falls back
-to rule-based logic so the app always keeps working.
-
-Legacy function signatures (parse_question_to_intent / generate_nl_summary) are
-kept so any direct callers continue to work without modification.
+Every provider call is wrapped in a try/except. On any failure (network error,
+quota, bad JSON, timeout, or an intent that doesn't match the expected shape)
+the next provider in the chain is tried. When every provider has failed, the
+functions return None and the caller falls back to rule-based logic, so the
+app always keeps working.
 """
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +86,7 @@ Write 1-3 clear, plain-English sentences.
 
 
 # ---------------------------------------------------------------------------
-# Public provider-agnostic API
+# Public provider-agnostic API (ordered failover chain)
 # ---------------------------------------------------------------------------
 
 async def parse_intent_with_ai(
@@ -88,18 +94,16 @@ async def parse_intent_with_ai(
     schema_context: str,
 ) -> Optional[Dict[str, Any]]:
     """
-    Parse a question into a structured intent dict using the configured AI provider.
-    Returns None on any failure so the caller can use rule-based fallback.
+    Parse a question into a structured intent dict, trying each configured
+    provider in order. Returns the first valid intent, or None when every
+    provider fails (the caller then uses the rule-based parser).
     """
-    from ..core.config import settings
-    provider = settings.ai_provider.lower()
-
-    if provider == "gemini" and settings.gemini_api_key:
-        return await _gemini_parse_intent(question, schema_context)
-
-    if provider == "openai" and settings.openai_api_key and settings.openai_api_key.startswith("sk-"):
-        return await _openai_parse_intent(question, schema_context)
-
+    for name in configured_providers():
+        result = await _PROVIDERS[name].parse_intent(question, schema_context)
+        if is_valid_intent(result):
+            logger.info("Intent parsed by %s", name)
+            return result
+        logger.warning("%s could not parse the intent; trying next provider", name)
     return None
 
 
@@ -108,19 +112,46 @@ async def generate_summary_with_ai(
     results: Dict[str, Any],
 ) -> Optional[str]:
     """
-    Generate a plain-English summary using the configured AI provider.
-    Returns None on any failure so the caller uses the template summary.
+    Generate a plain-English summary, trying each configured provider in order.
+    Returns None when every provider fails (the caller then uses the template).
+    """
+    for name in configured_providers():
+        text = await _PROVIDERS[name].generate_summary(question, results)
+        if text:
+            return text
+        logger.warning("%s could not write the summary; trying next provider", name)
+    return None
+
+
+def configured_providers() -> List[str]:
+    """
+    Providers from AI_PROVIDER, in order, keeping only known providers that
+    have an API key. "basic" (or an empty list) means no AI providers.
     """
     from ..core.config import settings
-    provider = settings.ai_provider.lower()
 
-    if provider == "gemini" and settings.gemini_api_key:
-        return await _gemini_generate_summary(question, results)
+    chain: List[str] = []
+    for raw in settings.ai_provider.split(","):
+        name = raw.strip().lower()
+        provider = _PROVIDERS.get(name)
+        if provider and name not in chain and provider.is_configured():
+            chain.append(name)
+    return chain
 
-    if provider == "openai" and settings.openai_api_key and settings.openai_api_key.startswith("sk-"):
-        return await _openai_generate_summary(question, results)
 
-    return None
+def is_valid_intent(intent: Any) -> bool:
+    """
+    Minimal shape check on an LLM-produced intent before it reaches the
+    dispatcher, so a malformed response fails over instead of crashing.
+    """
+    if not isinstance(intent, dict):
+        return False
+    if not isinstance(intent.get("intent_type"), str) or not intent["intent_type"]:
+        return False
+    filters = intent.get("filters")
+    if filters is not None and not isinstance(filters, dict):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +260,7 @@ async def _openai_parse_intent(
 
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.openai_model,
             messages=[
                 {"role": "system", "content": _INTENT_SYSTEM_PROMPT},
                 {
@@ -269,7 +300,7 @@ async def _openai_generate_summary(
             results_str = results_str[:6000] + "\n... (truncated)"
 
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.openai_model,
             messages=[
                 {"role": "system", "content": _SUMMARY_SYSTEM_PROMPT},
                 {
@@ -292,24 +323,37 @@ async def _openai_generate_summary(
 
 
 # ---------------------------------------------------------------------------
-# Legacy shims — kept so any direct callers continue to work
+# Provider registry
 # ---------------------------------------------------------------------------
 
-async def parse_question_to_intent(
-    question: str,
-    schema_context: str,
-    client: Any,  # ignored — provider resolved from config
-) -> Dict[str, Any]:
-    """Legacy signature.  Delegates to parse_intent_with_ai()."""
-    result = await parse_intent_with_ai(question, schema_context)
-    return result or {}
+@dataclass(frozen=True)
+class _Provider:
+    parse_intent: Callable[[str, str], Awaitable[Optional[Dict[str, Any]]]]
+    generate_summary: Callable[[str, Dict[str, Any]], Awaitable[Optional[str]]]
+    is_configured: Callable[[], bool]
 
 
-async def generate_nl_summary(
-    question: str,
-    results: Dict[str, Any],
-    client: Any,  # ignored — provider resolved from config
-) -> str:
-    """Legacy signature.  Delegates to generate_summary_with_ai()."""
-    result = await generate_summary_with_ai(question, results)
-    return result or ""
+def _gemini_configured() -> bool:
+    from ..core.config import settings
+    return bool(settings.gemini_api_key)
+
+
+def _openai_configured() -> bool:
+    from ..core.config import settings
+    return bool(settings.openai_api_key and settings.openai_api_key.startswith("sk-"))
+
+
+# The lambdas look the implementation up at call time (not import time), so a
+# test can replace e.g. _gemini_parse_intent with a fake that simulates an outage.
+_PROVIDERS: Dict[str, _Provider] = {
+    "gemini": _Provider(
+        parse_intent=lambda q, ctx: _gemini_parse_intent(q, ctx),
+        generate_summary=lambda q, r: _gemini_generate_summary(q, r),
+        is_configured=_gemini_configured,
+    ),
+    "openai": _Provider(
+        parse_intent=lambda q, ctx: _openai_parse_intent(q, ctx),
+        generate_summary=lambda q, r: _openai_generate_summary(q, r),
+        is_configured=_openai_configured,
+    ),
+}

@@ -67,12 +67,15 @@ app.include_router(analysis.router)
 
 @app.get("/health", tags=["health"])
 def health():
+    from .engine.query_parser import configured_providers
     from .services.analysis_service import _ai_available, _openai_available
     return {
         "status":           "ok",
         "app":              settings.app_name,
         "ai_provider":      settings.ai_provider,
         "ai_configured":    _ai_available(),
+        # Providers that will actually be tried, in failover order
+        "ai_chain":         configured_providers(),
         # Legacy key retained so older frontend code doesn't break
         "openai_configured": _openai_available(),
     }

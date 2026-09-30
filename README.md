@@ -1,5 +1,7 @@
 # Faculty Analytics
 
+[![Tests](https://github.com/Shardul-Pandit/Faculty-Analytics-App/actions/workflows/tests.yml/badge.svg)](https://github.com/Shardul-Pandit/Faculty-Analytics-App/actions/workflows/tests.yml)
+
 A full-stack web app that lets faculty upload student assessment CSVs and ask questions about them in plain English, such as *"Compare CS vs Biology students"* or *"Show the SLO attainment distribution"*. It answers with charts, tables, statistical tests, a plain-English summary, and a downloadable Excel report.
 
 ![Analytics page answering "Compare CS vs Biology students"](docs/screenshots/analytics-compare.png)
@@ -13,15 +15,15 @@ A full-stack web app that lets faculty upload student assessment CSVs and ask qu
 
 This keeps the numbers auditable and reproducible, which matters when faculty use them for accreditation reporting. An LLM that does arithmetic can be confidently wrong; this design removes that failure mode.
 
-**Three-tier fallback.** The AI provider is selected with `AI_PROVIDER` in `backend/.env`:
+**LLM failover chain.** `AI_PROVIDER` in `backend/.env` is an ordered list of providers, for example `AI_PROVIDER=gemini,openai`. Each question goes through the chain until something answers:
 
 | Tier | Provider | Needs a key? |
 |------|----------|--------------|
 | 1 | Google Gemini (`gemini-3.5-flash-lite` by default, set with `GEMINI_MODEL`) | Yes |
-| 2 | OpenAI (`gpt-4o-mini`) | Yes |
+| 2 | OpenAI (`gpt-4o-mini` by default, set with `OPENAI_MODEL`) | Yes |
 | 3 | Rule-based keyword parser and template summaries | No |
 
-Every AI call is wrapped so that any failure (network error, exhausted quota, malformed JSON) falls through to the rule-based path. The app keeps working with no API key at all; it just understands a narrower range of phrasings. The UI shows which mode is active.
+A provider fails over to the next one on any error: a network failure, an exhausted quota or rate limit, a timeout, invalid JSON, or an intent that doesn't match the expected shape (checked before it reaches the analytics engine). Providers listed without an API key are skipped, never called. If every provider fails, or none is configured, the rule-based tier answers, so the app keeps working with no API key at all; it just understands a narrower range of phrasings. `GET /health` reports the providers that will actually be tried, in order, and the UI shows which mode is active.
 
 ## Features
 
@@ -33,6 +35,7 @@ Every AI call is wrapped so that any failure (network error, exhausted quota, ma
 - **Data quality checks:** missing or out-of-range grades, missing or duplicate names, and majors with fewer than 5 students
 - **Excel export:** a formatted workbook with a Report Summary sheet, embedded charts, and one sheet per result table
 - **Accounts:** sign up and sign in with email or username; every file and mapping is scoped to its owner
+- **Tested:** 176 automated tests with 93% backend line coverage, run on every push (see [Testing](#testing))
 
 ## Screenshots
 
@@ -75,7 +78,9 @@ DA app/
 │   │   ├── services/          # Auth logic and analysis orchestration
 │   │   ├── engine/            # Statistics, CSV loading, column mapping, AI layer, Excel export
 │   │   └── utils/             # matplotlib chart builders
+│   ├── tests/                 # pytest suite: unit tests for the engine, integration tests for the API
 │   ├── requirements.txt
+│   ├── requirements-dev.txt   # test dependencies
 │   └── .env.example
 ├── frontend/
 │   ├── app/                   # Pages: login, signup, dashboard, upload, mapping, analytics
@@ -85,7 +90,8 @@ DA app/
 │   └── .env.example
 ├── legacy/
 │   └── student_assessment.py  # Original standalone script the engine was refactored from
-└── docs/screenshots/
+├── docs/screenshots/
+└── .github/workflows/         # CI: runs the test suite on every push
 ```
 
 ## Tech stack
@@ -98,6 +104,7 @@ DA app/
 | AI | google-genai (Gemini), openai |
 | Auth | bcrypt (passlib), JWT (python-jose, HS256) |
 | Database | SQLite |
+| Testing | pytest, pytest-cov, FastAPI TestClient, GitHub Actions |
 
 ## Running it locally
 
@@ -124,7 +131,7 @@ Open `backend/.env` and set `SECRET_KEY` to a long random string. You can genera
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Leave `AI_PROVIDER=basic` to run without any API key, or set it to `gemini` or `openai` and fill in the matching key.
+Leave `AI_PROVIDER=basic` to run without any API key, or list providers in failover order (for example `gemini` or `gemini,openai`) and fill in the matching keys.
 
 ```bash
 uvicorn app.main:app --reload
@@ -161,10 +168,11 @@ All backend settings are read from `backend/.env` (see `backend/.env.example`).
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `SECRET_KEY` | placeholder | Signs JWTs. **Must** be changed for any real use. |
-| `AI_PROVIDER` | `basic` | `basic`, `gemini`, or `openai` |
-| `GEMINI_API_KEY` | empty | Needed when `AI_PROVIDER=gemini` |
-| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model to call. Google retires models regularly, so it's configurable rather than hardcoded. |
-| `OPENAI_API_KEY` | empty | Needed when `AI_PROVIDER=openai` |
+| `AI_PROVIDER` | `basic` | Ordered failover chain, e.g. `gemini,openai`. `basic` means rule-based only. |
+| `GEMINI_API_KEY` | empty | Needed when `gemini` is in the chain |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model to call. Providers retire models regularly, so it's configurable rather than hardcoded. |
+| `OPENAI_API_KEY` | empty | Needed when `openai` is in the chain |
+| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model to call |
 | `DATABASE_URL` | `sqlite:///./faculty_analytics.db` | SQLAlchemy connection string |
 | `UPLOADS_DIR` / `OUTPUTS_DIR` | `uploads` / `outputs` | Where CSVs and Excel exports are stored |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `480` | Session length (8 hours) |
@@ -189,7 +197,29 @@ All endpoints except signup, login, and health require a `Bearer` token.
 | POST | `/mappings/save` | Save or update a mapping |
 | POST | `/analysis/query` | Ask a question about 1 or 2 files |
 | GET | `/analysis/export/{session_id}` | Download the Excel report |
-| GET | `/health` | Status and active AI mode |
+| GET | `/health` | Status and the AI providers that will be tried, in order |
+
+## Testing
+
+176 automated tests cover the backend with 93% line coverage. GitHub Actions runs them on every push, on Python 3.11 and 3.14.
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest                      # run everything
+pytest --cov=app            # with a coverage report
+```
+
+| File | What it checks |
+|------|----------------|
+| `test_analysis_engine.py` | Statistics against independently computed values (SciPy called directly, or worked by hand), grade-band and SLO boundaries, grade-change matching, and regression tests pinning the numbers shown in this README |
+| `test_io_and_mapping.py` | CSV normalisation, SLO thresholds, column auto-detection across naming styles, schema fingerprints |
+| `test_data_quality.py` | Each data-quality warning, and the all-clear case |
+| `test_rule_parser.py` | The rule-based question parser and template summaries (the last tier of the failover chain) |
+| `test_ai_failover.py` | The LLM failover chain: provider order, skipping unkeyed providers, failover on errors and malformed output, and the real Gemini/OpenAI code paths under simulated outages |
+| `test_api.py` | End-to-end HTTP tests: signup and login, per-user isolation of files and mappings, uploads, every question type with one and two files, Excel export, and full requests where every LLM provider fails |
+
+The tests never call a real LLM API: providers are replaced with fakes that succeed, fail or return malformed output on cue. They also never touch your real `.env`, database or uploads; the suite pins its own settings and runs against a temporary database.
 
 ## Legacy script
 

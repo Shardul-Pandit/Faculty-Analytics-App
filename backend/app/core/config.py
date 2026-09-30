@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
 
     # Gemini
     gemini_api_key: str | None = None
@@ -26,7 +27,8 @@ class Settings(BaseSettings):
     # (gemini-2.0-flash was shut down on 2026-06-01). Override via GEMINI_MODEL.
     gemini_model: str = "gemini-3.5-flash-lite"
 
-    # AI provider selection ("openai" | "gemini" | "basic")
+    # AI provider failover chain, tried in order, e.g. "gemini,openai".
+    # "basic" = rule-based only. Providers without an API key are skipped.
     ai_provider: str = "basic"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
